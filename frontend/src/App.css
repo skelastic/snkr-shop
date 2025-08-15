@@ -1,0 +1,285 @@
+/* Import Tailwind CSS */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Custom CSS Variables */
+:root {
+  --nike-black: #111111;
+  --nike-gray: #757575;
+  --nike-orange: #FF6900;
+  --nike-white: #FFFFFF;
+  --transition-fast: 0.2s ease;
+  --transition-medium: 0.3s ease;
+  --shadow-light: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.15);
+  --shadow-heavy: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Global Styles */
+.App {
+  text-align: left;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Smooth Animations */
+.fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.pulse-slow {
+  animation: pulseSlow 3s infinite;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Custom Nike-inspired Components */
+@layer components {
+  .nike-button {
+    @apply bg-black text-white px-6 py-3 rounded-full font-medium transition-all duration-200;
+  }
+
+  .nike-button:hover {
+    @apply bg-gray-800 transform scale-105;
+  }
+
+  .nike-button:active {
+    @apply transform scale-95;
+  }
+
+  .nike-card {
+    @apply bg-white rounded-lg shadow-md overflow-hidden transition-all duration-300;
+  }
+
+  .nike-card:hover {
+    @apply shadow-xl transform -translate-y-1;
+  }
+}
+
+/* Product Card Hover Effects */
+@layer components {
+  .product-card {
+    @apply transition-all duration-300;
+  }
+
+  .product-card:hover {
+    @apply transform -translate-y-1 shadow-2xl;
+  }
+
+  .product-card:hover .product-image {
+    @apply transform scale-105;
+  }
+
+  .product-image {
+    @apply transition-transform duration-300;
+  }
+}
+
+/* Flash Sale Animation */
+.flash-sale-banner {
+  background: linear-gradient(45deg, #ff6b6b, #ff8e53, #ff6b6b);
+  background-size: 200% 200%;
+  animation: flashGradient 3s ease infinite;
+}
+
+@keyframes flashGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Loading Skeleton */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Custom Utilities */
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(45deg, var(--nike-orange), #ff8e53);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glass-effect {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .translate-y-hover {
+    transition: transform 0.3s ease;
+  }
+
+  .translate-y-hover:hover {
+    transform: translateY(-4px);
+  }
+}
+
+/* Responsive Design Helpers */
+@media (max-width: 640px) {
+  .nike-button {
+    @apply px-4 py-2 text-sm;
+  }
+  
+  .product-card {
+    margin-bottom: 1rem;
+  }
+}
+
+/* Focus States for Accessibility */
+.focus\\:ring-nike:focus {
+  --tw-ring-color: var(--nike-orange);
+}
+
+/* Custom Grid Layouts */
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .products-grid {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+}
+
+/* Header Scroll Effect */
+.header-scrolled {
+  backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-light);
+}
+
+/* Cart Badge Animation */
+.cart-badge {
+  animation: bounceIn 0.3s ease;
+}
+
+@keyframes bounceIn {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Price Strike-through Animation */
+.price-strike {
+  position: relative;
+}
+
+.price-strike::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  animation: strikeThrough 0.3s ease forwards;
+}
+
+@keyframes strikeThrough {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Custom Checkbox Styles */
+.custom-checkbox {
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid #d1d5db;
+  border-radius: 0.25rem;
+  background-color: white;
+  transition: all 0.2s;
+}
+
+.custom-checkbox:checked {
+  background-color: var(--nike-black);
+  border-color: var(--nike-black);
+  background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='m13.854 3.646-7.5 7.5a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6 10.293l7.146-7.147a.5.5 0 0 1 .708.708z'/%3e%3c/svg%3e");
+}
+
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .product-card {
+    break-inside: avoid;
+    box-shadow: none;
+    border: 1px solid #ddd;
+  }
+}
