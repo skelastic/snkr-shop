@@ -1,0 +1,35 @@
+{
+  "_id": {
+    "$oid": "689f54d09adb3f9bf709e907"
+  },
+  "sku": "SKX-EN-DO-TB-130",
+  "product_id": "SKX-EN-DO",
+  "size": 13,
+  "color_code": "TB",
+  "color_name": "Turquoise/Blue",
+  "price": 142.28,
+  "sale_price": null,
+  "stock_quantity": 13,
+  "stock_reserved": 5,
+  "stock_available": 8,
+  "weight": 1.4,
+  "dimensions": {
+    "length": 28.3,
+    "width": 12.3,
+    "height": 10.7
+  },
+  "barcode": "707040792207",
+  "supplier_code": "SKE-167",
+  "warehouse_location": "A-18-A",
+  "is_flash_sale": false,
+  "flash_sale_end": null,
+  "brand": "Skechers",
+  "category": "Running",
+  "product_name": "Skechers Energy Downforce",
+  "created_at": {
+    "$date": "2025-08-15T08:40:00.605Z"
+  },
+  "updated_at": {
+    "$date": "2025-08-15T08:40:00.605Z"
+  }
+}

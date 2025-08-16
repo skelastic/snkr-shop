@@ -1,0 +1,58 @@
+{
+  "_id": {
+    "$oid": "689f54d09adb3f9bf709e51f"
+  },
+  "product_id": "SKX-EN-DO",
+  "name": "Skechers Energy Downforce",
+  "brand": "Skechers",
+  "category": "Running",
+  "description": "Premium Energy Downforce from Skechers featuring Gel, HOVR technology and Leather, Mesh construction.",
+  "base_price": 119.04,
+  "images": {
+    "main": "https://picsum.photos/800/600?random=894",
+    "gallery": [
+      "https://picsum.photos/600/600?random=1253",
+      "https://picsum.photos/600/600?random=2683",
+      "https://picsum.photos/600/600?random=9012",
+      "https://picsum.photos/600/600?random=1331"
+    ]
+  },
+  "release_date": {
+    "$date": "2024-03-26T08:40:00.605Z"
+  },
+  "materials": [
+    "Leather",
+    "Mesh"
+  ],
+  "technology": [
+    "Gel",
+    "HOVR"
+  ],
+  "available_sizes": [
+    6,
+    6.5,
+    7,
+    8.5,
+    9.5,
+    10,
+    12,
+    12.5,
+    13
+  ],
+  "available_colors": [
+    "Turquoise/Blue",
+    "Pink/White",
+    "Navy/White",
+    "Black/Red",
+    "Orange/White"
+  ],
+  "is_featured": false,
+  "rating": 3.7,
+  "reviews_count": 1263,
+  "created_at": {
+    "$date": "2025-08-15T08:40:00.605Z"
+  },
+  "updated_at": {
+    "$date": "2025-08-15T08:40:00.605Z"
+  }
+}

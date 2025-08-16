@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""
+Database setup and migration script for PostgreSQL
+This script creates the database schema and provides utilities for data migration
+"""
+
+import os
+import json
+import uuid
+from datetime import datetime, timedelta
+from sqlalchemy import create_engine, text, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, ForeignKey, Index, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
+
+# Define the models here to avoid import issues
+Base = declarative_base()
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_id = Column(String(20), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    brand = Column(String(100), nullable=False, index=True)
+    category = Column(String(100), nullable=False, index=True)
+    description = Column(Text)
+    base_price = Column(Float, nullable=False)
+    images = Column(JSON)
+    release_date = Column(DateTime, nullable=False)
+    materials = Column(ARRAY(String))
+    technology = Column(ARRAY(String))
+    available_sizes = Column(ARRAY(Float))
+    available_colors = Column(ARRAY(String))
+    is_featured = Column(Boolean, default=False, index=True)
+    rating = Column(Float, default=0.0)
+    reviews_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    skus = relationship("SKU", back_populates="product")
+
+    __table_args__ = (
+        Index('idx_product_brand_category', 'brand', 'category'),
+        Index('idx_product_featured_brand', 'is_featured', 'brand'),
+        Index('idx_product_name_search', 'name'),
+    )
+
+class SKU(Base):
+    __tablename__ = "skus"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sku = Column(String(50), unique=True, nullable=False, index=True)
+    product_id = Column(String(20), ForeignKey('products.product_id'), nullable=False, index=True)
+    size = Column(Float, nullable=False)
+    color_code = Column(String(10), nullable=False)
+    color_name = Column(String(100), nullable=False)
+    price = Column(Float, nullable=False, index=True)
+    sale_price = Column(Float, nullable=True)
+    stock_quantity = Column(Integer, nullable=False, default=0)
+    stock_reserved = Column(Integer, nullable=False, default=0)
+    stock_available = Column(Integer, nullable=False, default=0, index=True)
+    weight = Column(Float)
+    dimensions = Column(JSON)
+    barcode = Column(String(50))
+    supplier_code = Column(String(50))
+    warehouse_location = Column(String(50))
+    is_flash_sale = Column(Boolean, default=False, index=True)
+    flash_sale_end = Column(DateTime, nullable=True)
+    brand = Column(String(100), nullable=False, index=True)
+    category = Column(String(100), nullable=False, index=True)
+    product_name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    product = relationship("Product", back_populates="skus")
+
+    __table_args__ = (
+        Index('idx_sku_product_stock', 'product_id', 'stock_available'),
+        Index('idx_sku_flash_sale', 'is_flash_sale', 'flash_sale_end'),
+        Index('idx_sku_price_stock', 'price', 'stock_available'),
+        Index('idx_sku_brand_category_stock', 'brand', 'category', 'stock_available'),
+    )
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(255), unique=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    items = Column(JSON)
+    total_amount = Column(Float, nullable=False)
+    status = Column(String(50), default="pending")
+    created_at = Column(DateTime, default=func.now())
+
+# Database configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin@localhost:5432/sneaker_store")
+
+def create_database_schema():
+    """Create all database tables"""
+    engine = create_engine(DATABASE_URL)
+
+    print("Creating database schema...")
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database schema created successfully!")
+
+    return engine
+
+def drop_database_schema():
+    """Drop all database tables (be careful!)"""
+    engine = create_engine(DATABASE_URL)
+
+    print("⚠️  WARNING: Dropping all database tables...")
+    Base.metadata.drop_all(bind=engine)
+    print("🗑️  Database schema dropped!")
+
+    return engine
+
+def create_indexes():
+    """Create additional indexes for performance"""
+    engine = create_engine(DATABASE_URL)
+
+    additional_indexes = [
+        # Full-text search indexes
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_products_name_gin ON products USING gin(to_tsvector('english', name));",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_products_description_gin ON products USING gin(to_tsvector('english', description));",
+
+        # Composite indexes for common query patterns
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skus_brand_category_price ON skus (brand, category, price);",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skus_flash_sale_active ON skus (is_flash_sale, flash_sale_end) WHERE is_flash_sale = true;",
+
+        # Partial indexes for better performance
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skus_available_stock ON skus (stock_available) WHERE stock_available > 0;",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_products_featured ON products (is_featured) WHERE is_featured = true;",
+
+        # JSONB indexes for image queries
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_products_images_gin ON products USING gin(images);",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skus_dimensions_gin ON skus USING gin(dimensions);",
+    ]
+
+    print("Creating additional performance indexes...")
+    with engine.connect() as conn:
+        for index_sql in additional_indexes:
+            try:
+                print(f"Creating index: {index_sql}")
+                conn.execute(text(index_sql))
+                conn.commit()
+            except Exception as e:
+                print(f"⚠️  Error creating index: {e}")
+                conn.rollback()
+
+    print("✅ Additional indexes created!")
+
+def migrate_from_mongodb_sample():
+    """
+    Sample function to migrate data from MongoDB format to PostgreSQL
+    This shows how to convert the sample JSON data provided
+    """
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+
+    # Sample product data (from your product-sample.json)
+    sample_product = {
+        "_id": {"$oid": "689f54d09adb3f9bf709e51f"},
+        "product_id": "SKX-EN-DO",
+        "name": "Skechers Energy Downforce",
+        "brand": "Skechers",
+        "category": "Running",
+        "description": "Premium Energy Downforce from Skechers featuring Gel, HOVR technology and Leather, Mesh construction.",
+        "base_price": 119.04,
+        "images": {
+            "main": "https://picsum.photos/800/600?random=894",
+            "gallery": [
+                "https://picsum.photos/600/600?random=1253",
+                "https://picsum.photos/600/600?random=2683",
+                "https://picsum.photos/600/600?random=9012",
+                "https://picsum.photos/600/600?random=1331"
+            ]
+        },
+        "release_date": {"$date": "2024-03-26T08:40:00.605Z"},
+        "materials": ["Leather", "Mesh"],
+        "technology": ["Gel", "HOVR"],
+        "available_sizes": [6, 6.5, 7, 8.5, 9.5, 10, 12, 12.5, 13],
+        "available_colors": ["Turquoise/Blue", "Pink/White", "Navy/White", "Black/Red", "Orange/White"],
+        "is_featured": False,
+        "rating": 3.7,
+        "reviews_count": 1263,
+        "created_at": {"$date": "2025-08-15T08:40:00.605Z"},
+        "updated_at": {"$date": "2025-08-15T08:40:00.605Z"}
+    }
+
+    # Sample SKU data (from your sku-sample.json)
+    sample_sku = {
+        "_id": {"$oid": "689f54d09adb3f9bf709e907"},
+        "sku": "SKX-EN-DO-TB-130",
+        "product_id": "SKX-EN-DO",
+        "size": 13,
+        "color_code": "TB",
+        "color_name": "Turquoise/Blue",
+        "price": 142.28,
+        "sale_price": None,
+        "stock_quantity": 13,
+        "stock_reserved": 5,
+        "stock_available": 8,
+        "weight": 1.4,
+        "dimensions": {
+            "length": 28.3,
+            "width": 12.3,
+            "height": 10.7
+        },
+        "barcode": "707040792207",
+        "supplier_code": "SKE-167",
+        "warehouse_location": "A-18-A",
+        "is_flash_sale": False,
+        "flash_sale_end": None,
+        "brand": "Skechers",
+        "category": "Running",
+        "product_name": "Skechers Energy Downforce",
+        "created_at": {"$date": "2025-08-15T08:40:00.605Z"},
+        "updated_at": {"$date": "2025-08-15T08:40:00.605Z"}
+    }
+
+    try:
+        # Convert and insert product
+        product = Product(
+            product_id=sample_product["product_id"],
+            name=sample_product["name"],
+            brand=sample_product["brand"],
+            category=sample_product["category"],
+            description=sample_product["description"],
+            base_price=sample_product["base_price"],
+            images=sample_product["images"],
+            release_date=datetime.fromisoformat(sample_product["release_date"]["$date"].replace("Z", "+00:00")),
+            materials=sample_product["materials"],
+            technology=sample_product["technology"],
+            available_sizes=sample_product["available_sizes"],
+            available_colors=sample_product["available_colors"],
+            is_featured=sample_product["is_featured"],
+            rating=sample_product["rating"],
+            reviews_count=sample_product["reviews_count"],
+            created_at=datetime.fromisoformat(sample_product["created_at"]["$date"].replace("Z", "+00:00")),
+            updated_at=datetime.fromisoformat(sample_product["updated_at"]["$date"].replace("Z", "+00:00"))
+        )
+
+        db.add(product)
+        db.flush()  # Get the ID
+
+        # Convert and insert SKU
+        sku = SKU(
+            sku=sample_sku["sku"],
+            product_id=sample_sku["product_id"],
+            size=sample_sku["size"],
+            color_code=sample_sku["color_code"],
+            color_name=sample_sku["color_name"],
+            price=sample_sku["price"],
+            sale_price=sample_sku["sale_price"],
+            stock_quantity=sample_sku["stock_quantity"],
+            stock_reserved=sample_sku["stock_reserved"],
+            stock_available=sample_sku["stock_available"],
+            weight=sample_sku["weight"],
+            dimensions=sample_sku["dimensions"],
+            barcode=sample_sku["barcode"],
+            supplier_code=sample_sku["supplier_code"],
+            warehouse_location=sample_sku["warehouse_location"],
+            is_flash_sale=sample_sku["is_flash_sale"],
+            flash_sale_end=sample_sku["flash_sale_end"],
+            brand=sample_sku["brand"],
+            category=sample_sku["category"],
+            product_name=sample_sku["product_name"],
+            created_at=datetime.fromisoformat(sample_sku["created_at"]["$date"].replace("Z", "+00:00")),
+            updated_at=datetime.fromisoformat(sample_sku["updated_at"]["$date"].replace("Z", "+00:00"))
+        )
+
+        db.add(sku)
+        db.commit()
+
+        print("✅ Sample data migrated successfully!")
+        print(f"Product ID: {product.id}")
+        print(f"SKU ID: {sku.id}")
+
+    except Exception as e:
+        print(f"❌ Error migrating sample data: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+def generate_sample_data(num_products=50, num_skus_per_product=5):
+    """Generate sample data for testing"""
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+
+    brands = ["Nike", "Adidas", "Jordan", "Puma", "New Balance", "Converse", "Vans", "Reebok", "Skechers", "ASICS"]
+    categories = ["Running", "Basketball", "Casual", "Training", "Skateboarding", "Tennis", "Soccer", "Walking"]
+    materials = ["Leather", "Mesh", "Canvas", "Synthetic", "Knit", "Suede"]
+    technologies = ["Air Max", "Boost", "Gel", "HOVR", "Fresh Foam", "React", "Zoom"]
+    colors = ["Black/White", "White/Black", "Red/Black", "Blue/White", "Navy/White", "Gray/Black", "Turquoise/Blue", "Pink/White", "Orange/White", "Purple/Black"]
+
+    try:
+        products_created = 0
+        skus_created = 0
+
+        for i in range(num_products):
+            # Create product
+            brand = brands[i % len(brands)]
+            category = categories[i % len(categories)]
+            product_id = f"{brand[:3].upper()}-{category[:3].upper()}-{i:03d}"
+
+            product = Product(
+                product_id=product_id,
+                name=f"{brand} {category} {i+1}",
+                brand=brand,
+                category=category,
+                description=f"Premium {category.lower()} shoe from {brand} featuring advanced technology and materials.",
+                base_price=round(80 + (i * 2.5), 2),
+                images={
+                    "main": f"https://picsum.photos/800/600?random={i+1000}",
+                    "gallery": [
+                        f"https://picsum.photos/600/600?random={i+2000}",
+                        f"https://picsum.photos/600/600?random={i+3000}",
+                        f"https://picsum.photos/600/600?random={i+4000}"
+                    ]
+                },
+                release_date=datetime.now(),
+                materials=materials[i % len(materials):i % len(materials) + 2],
+                technology=technologies[i % len(technologies):i % len(technologies) + 2],
+                available_sizes=[7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12],
+                available_colors=colors[i % len(colors):i % len(colors) + 3],
+                is_featured=(i % 10 == 0),  # Every 10th product is featured
+                rating=round(3.0 + (i % 20) * 0.1, 1),
+                reviews_count=(i * 10) + 50
+            )
+
+            db.add(product)
+            db.flush()
+            products_created += 1
+
+            # Create SKUs for this product
+            sizes = [7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12]
+            selected_colors = colors[i % len(colors):i % len(colors) + min(3, num_skus_per_product)]
+
+            sku_count = 0
+            for size in sizes[:num_skus_per_product]:
+                for color in selected_colors:
+                    if sku_count >= num_skus_per_product:
+                        break
+
+                    color_code = ''.join([word[0] for word in color.split('/')])
+                    size_str = str(size).replace('.', '')
+
+                    sku = SKU(
+                        sku=f"{product_id}-{color_code}-{size_str}",
+                        product_id=product_id,
+                        size=size,
+                        color_code=color_code,
+                        color_name=color,
+                        price=round(product.base_price + (size * 2) + (sku_count * 5), 2),
+                        sale_price=round(product.base_price * 0.9, 2) if i % 15 == 0 else None,
+                        stock_quantity=20 + (i % 30),
+                        stock_reserved=i % 5,
+                        stock_available=20 + (i % 30) - (i % 5),
+                        weight=round(1.0 + (size * 0.1), 2),
+                        dimensions={
+                            "length": round(25 + size, 1),
+                            "width": round(10 + (size * 0.3), 1),
+                            "height": round(8 + (size * 0.2), 1)
+                        },
+                        barcode=f"70704{i:04d}{sku_count:02d}",
+                        supplier_code=f"{brand[:3].upper()}-{i:03d}",
+                        warehouse_location=f"A-{i % 20 + 1:02d}-{chr(65 + sku_count)}",
+                        is_flash_sale=(i % 20 == 0),  # Every 20th product has flash sale
+                        flash_sale_end=datetime.now() + timedelta(days=7) if i % 20 == 0 else None,
+                        brand=brand,
+                        category=category,
+                        product_name=product.name
+                    )
+
+                    db.add(sku)
+                    skus_created += 1
+                    sku_count += 1
+
+        db.commit()
+        print(f"✅ Generated {products_created} products and {skus_created} SKUs successfully!")
+
+    except Exception as e:
+        print(f"❌ Error generating sample data: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+def reset_database():
+    """Reset the entire database - drop and recreate schema"""
+    print("🔄 Resetting database...")
+    drop_database_schema()
+    create_database_schema()
+    create_indexes()
+    print("✅ Database reset complete!")
+
+def setup_database():
+    """Complete database setup - create schema, indexes, and sample data"""
+    print("🚀 Setting up database...")
+    create_database_schema()
+    create_indexes()
+    migrate_from_mongodb_sample()
+    generate_sample_data(50, 5)
+    print("🎉 Database setup complete!")
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python database_setup.py [command]")
+        print("Commands:")
+        print("  setup     - Complete database setup")
+        print("  reset     - Drop and recreate database")
+        print("  schema    - Create schema only")
+        print("  indexes   - Create indexes only")
+        print("  sample    - Generate sample data only")
+        print("  migrate   - Migrate sample MongoDB data")
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+
+    if command == "setup":
+        setup_database()
+    elif command == "reset":
+        reset_database()
+    elif command == "schema":
+        create_database_schema()
+    elif command == "indexes":
+        create_indexes()
+    elif command == "sample":
+        generate_sample_data(500000, 5)
+    elif command == "migrate":
+        migrate_from_mongodb_sample()
+    else:
+        print(f"Unknown command: {command}")
+        sys.exit(1)
