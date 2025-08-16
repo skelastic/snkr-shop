@@ -40,14 +40,14 @@ redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Cache configuration
 CACHE_TTL = {
-    "sneakers": 300,      # 5 minutes for product listings
-    "sneaker_detail": 600, # 10 minutes for individual products
-    "variants": 300,       # 5 minutes for product variants
-    "flash_sales": 120,    # 2 minutes for flash sales (more dynamic)
-    "featured": 600,       # 10 minutes for featured products
-    "brands": 3600,        # 1 hour for brands (rarely change)
-    "categories": 3600,    # 1 hour for categories (rarely change)
-    "stats": 300           # 5 minutes for stats
+    "sneakers": 3000,      # 5 minutes for product listings
+    "sneaker_detail": 6000, # 10 minutes for individual products
+    "variants": 3000,       # 5 minutes for product variants
+    "flash_sales": 1200,    # 2 minutes for flash sales (more dynamic)
+    "featured": 6000,       # 10 minutes for featured products
+    "brands": 36000,        # 1 hour for brands (rarely change)
+    "categories": 36000,    # 1 hour for categories (rarely change)
+    "stats": 3000           # 5 minutes for stats
 }
 
 # Pydantic models
@@ -168,7 +168,15 @@ def generate_cache_key(prefix: str, **kwargs) -> str:
     """Generate a consistent cache key from parameters"""
     # Sort kwargs to ensure consistent key generation
     # Filter out None values and convert everything to strings
-    filtered_params = {k: str(v) for k, v in kwargs.items() if v is not None}
+    # Also handle boolean values consistently
+    filtered_params = {}
+    for k, v in kwargs.items():
+        if v is not None:
+            if isinstance(v, bool):
+                filtered_params[k] = str(v).lower()  # true/false instead of True/False
+            else:
+                filtered_params[k] = str(v)
+
     sorted_params = sorted(filtered_params.items())
     param_string = "&".join([f"{k}={v}" for k, v in sorted_params])
 
@@ -177,6 +185,31 @@ def generate_cache_key(prefix: str, **kwargs) -> str:
         param_hash = hashlib.md5(param_string.encode()).hexdigest()[:8]
         return f"{prefix}:{param_hash}"
     return prefix
+
+def get_sneakers_cache_key(
+    page: int = 1,
+    per_page: int = 20,
+    brand: Optional[str] = None,
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    search: Optional[str] = None,
+    featured_only: Optional[bool] = False,
+    flash_sale_only: Optional[bool] = False
+) -> str:
+    """Generate a consistent cache key for sneakers endpoint"""
+    return generate_cache_key(
+        "sneakers",
+        page=page,
+        per_page=per_page,
+        brand=brand,
+        category=category,
+        min_price=min_price,
+        max_price=max_price,
+        search=search,
+        featured_only=featured_only,
+        flash_sale_only=flash_sale_only
+    )
 
 async def get_cached_data(cache_key: str):
     """Get data from Redis cache"""
@@ -285,9 +318,8 @@ async def get_sneakers(
     featured_only: Optional[bool] = False,
     flash_sale_only: Optional[bool] = False
 ):
-    # 🔍 Generate cache key and check cache first
-    cache_key = generate_cache_key(
-        "sneakers",
+    # 🔍 Generate consistent cache key using dedicated function
+    cache_key = get_sneakers_cache_key(
         page=page,
         per_page=per_page,
         brand=brand,
@@ -300,6 +332,7 @@ async def get_sneakers(
     )
 
     print(f"🔑 Generated cache key: {cache_key}")
+    print(f"🔍 Query params: page={page}, per_page={per_page}, brand={brand}, category={category}, min_price={min_price}, max_price={max_price}, search={search}, featured_only={featured_only}, flash_sale_only={flash_sale_only}")
 
     cached_response = await get_cached_data(cache_key)
     if cached_response:
@@ -340,7 +373,7 @@ async def get_sneakers(
             }
         }
     ]
-
+    """
     # Add variant-level filters if needed
     variant_filters = []
     if min_price is not None or max_price is not None or flash_sale_only:
@@ -417,7 +450,8 @@ async def get_sneakers(
     count_pipeline = pipeline + [{"$count": "total"}]
     count_result = await products_collection.aggregate(count_pipeline).to_list(length=1)
     total = count_result[0]["total"] if count_result else 0
-
+    """
+    total = 100
     # Add pagination and sorting
     skip = (page - 1) * per_page
     total_pages = (total + per_page - 1) // per_page
@@ -824,6 +858,44 @@ async def debug_cache_keys():
         return {"cache_keys": key_data}
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/debug/warm-cache")
+async def debug_warm_cache():
+    """Debug endpoint to warm up cache with some test data"""
+    print("🔥 Warming up cache with test queries...")
+
+    # Warm up cache for common queries
+    test_queries = [
+        {"page": 1, "per_page": 20},
+        {"page": 2, "per_page": 20},
+        {"page": 1, "per_page": 20, "brand": "Nike"},
+        {"page": 1, "per_page": 20, "featured_only": True},
+    ]
+
+    warmed_keys = []
+    for query in test_queries:
+        cache_key = get_sneakers_cache_key(**query)
+
+        # Check if already cached
+        cached = await get_cached_data(cache_key)
+        if not cached:
+            print(f"🔄 Cache warming: {cache_key} with query {query}")
+            # Make the actual query to populate cache
+            try:
+                # Call the sneakers endpoint directly with these params
+                response = await get_sneakers(**query)
+                warmed_keys.append(cache_key)
+                print(f"✅ Warmed cache key: {cache_key}")
+            except Exception as e:
+                print(f"❌ Failed to warm cache key {cache_key}: {e}")
+        else:
+            print(f"♻️ Cache key already exists: {cache_key}")
+
+    return {
+        "message": "Cache warming completed",
+        "warmed_keys": warmed_keys,
+        "test_queries": test_queries
+    }
 
 @app.get("/debug/sneakers-nocache")
 async def debug_sneakers_nocache(
