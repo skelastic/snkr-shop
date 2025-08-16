@@ -141,68 +141,28 @@ class Order(BaseModel):
 def generate_sku():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
-# Database initialization and population
-@app.on_event("startup")
-async def startup_event():
-    # Create indexes for better performance
-    await skus_collection.create_index([("brand", 1), ("category", 1)])
-    await skus_collection.create_index([("price", 1)])
-    await skus_collection.create_index([("is_featured", 1)])
-    await skus_collection.create_index([("is_flash_sale", 1)])
-    await skus_collection.create_index([("name", "text"), ("description", "text")])
+def generate_product_id():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
-# Data population endpoint (run once to populate database)
-@app.post("/populate-data")
-async def populate_sneakers():
-    existing_count = await skus_collection.count_documents({})
-    if existing_count >= 1000:  # Reduced for demo purposes
-        return {"message": f"Database already has {existing_count} sneakers"}
+# Database stats endpoint
+@app.get("/stats")
+async def get_database_stats():
+    products_count = await products_collection.count_documents({})
+    skus_count = await skus_collection.count_documents({})
+    available_skus_count = await skus_collection.count_documents({"stock_available": {"$gt": 0}})
 
-    brands = ["Nike", "Adidas", "Jordan", "Puma", "New Balance", "Converse", "Vans", "Reebok"]
-    categories = ["Running", "Basketball", "Lifestyle", "Training", "Skateboarding", "Tennis"]
-    colors = ["Black", "White", "Red", "Blue", "Green", "Gray", "Brown", "Pink", "Yellow", "Purple"]
+    brands = await products_collection.distinct("brand")
+    categories = await products_collection.distinct("category")
 
-    sneakers_to_insert = []
-
-    # Generate 1000 sneakers for demo (you can increase this number)
-    for i in range(1000):
-        brand = random.choice(brands)
-        category = random.choice(categories)
-
-        # Flash sale logic - 10% of sneakers are on flash sale
-        is_flash_sale = random.random() < 0.1
-        flash_sale_end = None
-        sale_price = None
-
-        base_price = round(random.uniform(60, 300), 2)
-
-        if is_flash_sale:
-            flash_sale_end = datetime.now() + timedelta(hours=random.randint(1, 72))
-            sale_price = round(base_price * random.uniform(0.6, 0.8), 2)
-
-        sneaker = {
-            "sku": generate_sku(),
-            "name": f"{brand} {category} {random.choice(['Pro', 'Elite', 'Max', 'Air', 'Ultra', 'Boost'])}-{i+1}",
-            "brand": brand,
-            "price": base_price,
-            "sale_price": sale_price,
-            "description": f"Premium {category.lower()} sneaker from {brand} featuring cutting-edge technology and superior comfort.",
-            "category": category,
-            "sizes": [size/2 for size in range(12, 32)],  # US sizes 6-16
-            "colors": random.sample(colors, random.randint(1, 3)),
-            "image_url": f"https://picsum.photos/400/400?random={i+1}",
-            "stock_quantity": random.randint(0, 100),
-            "rating": round(random.uniform(3.0, 5.0), 1),
-            "reviews_count": random.randint(10, 500),
-            "is_featured": random.random() < 0.2,  # 20% are featured
-            "is_flash_sale": is_flash_sale,
-            "flash_sale_end": flash_sale_end,
-            "created_at": datetime.now()
-        }
-        sneakers_to_insert.append(sneaker)
-
-    await sneakers_collection.insert_many(sneakers_to_insert)
-    return {"message": f"Successfully populated {len(sneakers_to_insert)} sneakers"}
+    return {
+        "products_count": products_count,
+        "skus_count": skus_count,
+        "available_skus_count": available_skus_count,
+        "brands_count": len(brands),
+        "categories_count": len(categories),
+        "brands": sorted(brands),
+        "categories": sorted(categories)
+    }
 
 # API Endpoints
 @app.get("/")
@@ -221,80 +181,162 @@ async def get_sneakers(
     featured_only: Optional[bool] = False,
     flash_sale_only: Optional[bool] = False
 ):
-    # Build filter query for SKUs collection
-    filter_query = {"stock_available": {"$gt": 0}}  # Only show available items
+    # Build base filter for products
+    match_filter = {}
 
     if brand:
-        filter_query["brand"] = {"$regex": brand, "$options": "i"}
+        match_filter["brand"] = {"$regex": brand, "$options": "i"}
     if category:
-        filter_query["category"] = {"$regex": category, "$options": "i"}
-    if min_price is not None:
-        filter_query["price"] = {"$gte": min_price}
-    if max_price is not None:
-        filter_query.setdefault("price", {})["$lte"] = max_price
+        match_filter["category"] = {"$regex": category, "$options": "i"}
     if search:
-        filter_query["product_name"] = {"$regex": search, "$options": "i"}
-    if flash_sale_only:
-        filter_query["is_flash_sale"] = True
-        filter_query["flash_sale_end"] = {"$gt": datetime.now()}
-
-    # For featured, we need to check the products collection
+        match_filter["name"] = {"$regex": search, "$options": "i"}
     if featured_only:
-        featured_product_ids = await products_collection.distinct(
-            "product_id",
-            {"is_featured": True}
-        )
-        filter_query["product_id"] = {"$in": featured_product_ids}
+        match_filter["is_featured"] = True
 
-    # Get total count
-    total = await skus_collection.count_documents(filter_query)
+    # Build the aggregation pipeline
+    pipeline = [
+        {"$match": match_filter},
+        {"$limit": 200},
+        {
+            "$lookup": {
+                "from": "skus",
+                "localField": "product_id",
+                "foreignField": "product_id",
+                "as": "variants"
+            }
+        },
+        {
+            "$addFields": {
+                "total_stock": {"$sum": "$variants.stock_available"},
+                "min_price": {"$min": "$variants.price"},
+                "variant_count": {"$size": "$variants"}
+            }
+        }
+    ]
+    """
+    # Add variant-level filters if needed
+    variant_filters = []
+    if min_price is not None or max_price is not None or flash_sale_only:
+        variant_match = {}
+        if min_price is not None:
+            variant_match["price"] = {"$gte": min_price}
+        if max_price is not None:
+            variant_match.setdefault("price", {})["$lte"] = max_price
+        if flash_sale_only:
+            variant_match["is_flash_sale"] = True
+            variant_match["flash_sale_end"] = {"$gt": datetime.now()}
 
-    # Calculate pagination
+        # Filter variants and recalculate aggregated fields
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "filtered_variants": {
+                        "$filter": {
+                            "input": "$variants",
+                            "cond": {
+                                "$and": [
+                                    {"$gt": ["$this.stock_available", 0]},
+                                    *[{f"${op}": [f"$this.{field}", value]}
+                                      for field, condition in variant_match.items()
+                                      for op, value in (condition.items() if isinstance(condition, dict) else [("eq", condition)])]
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "filtered_variants": {"$ne": []}
+                }
+            },
+            {
+                "$addFields": {
+                    "variants": "$filtered_variants",
+                    "total_stock": {"$sum": "$filtered_variants.stock_available"},
+                    "min_price": {"$min": "$filtered_variants.price"},
+                    "variant_count": {"$size": "$filtered_variants"}
+                }
+            }
+        ])
+    else:
+        # Just filter out variants with no stock
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "variants": {
+                        "$filter": {
+                            "input": "$variants",
+                            "cond": {"$gt": ["$this.stock_available", 0]}
+                        }
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "variants": {"$ne": []}
+                }
+            },
+            {
+                "$addFields": {
+                    "total_stock": {"$sum": "$variants.stock_available"},
+                    "min_price": {"$min": "$variants.price"},
+                    "variant_count": {"$size": "$variants"}
+                }
+            }
+        ])
+    """
+    # Get total count for pagination
+    count_pipeline = pipeline + [{"$count": "total"}]
+    count_result = await products_collection.aggregate(count_pipeline).to_list(length=1)
+    total = count_result[0]["total"] if count_result else 0
+
+    # Add pagination and sorting
     skip = (page - 1) * per_page
     total_pages = (total + per_page - 1) // per_page
 
-    # Get SKUs and aggregate with product data
-    pipeline = [
-        {"$match": filter_query},
+    paginated_pipeline = pipeline + [
+        {"$sort": {"min_price": 1, "name": 1}},
         {"$skip": skip},
-        {"$limit": per_page},
-        {"$lookup": {
-            "from": "products",
-            "localField": "product_id",
-            "foreignField": "product_id",
-            "as": "product_info"
-        }},
-        {"$unwind": "$product_info"}
+        {"$limit": per_page}
     ]
 
-    cursor = skus_collection.aggregate(pipeline)
-    sku_results = await cursor.to_list(length=per_page)
+    # Execute the aggregation
+    cursor = products_collection.aggregate(paginated_pipeline)
+    results = await cursor.to_list(length=per_page)
 
-    # Convert to legacy Sneaker format for frontend compatibility
+    # Convert to legacy Sneaker format
     sneakers = []
-    for item in sku_results:
-        sku = item
-        product = item["product_info"]
+    for product in results:
+        # Get representative variant (lowest price)
+        representative_variant = min(product["variants"], key=lambda x: x["price"]) if product["variants"] else None
+
+        if not representative_variant:
+            continue
+
+        # Extract all unique sizes and colors
+        all_sizes = sorted(list(set(variant["size"] for variant in product["variants"])))
+        all_colors = list(set(variant["color_name"] for variant in product["variants"]))
 
         sneaker = {
-            "id": str(sku["_id"]),
-            "sku": sku["sku"],
+            "id": str(product["_id"]),
+            "sku": representative_variant["sku"],
             "name": product["name"],
-            "brand": sku["brand"],
-            "price": sku["price"],
-            "sale_price": sku.get("sale_price"),
+            "brand": product["brand"],
+            "price": product["min_price"],
+            "sale_price": representative_variant.get("sale_price"),
             "description": product["description"],
-            "category": sku["category"],
-            "sizes": [sku["size"]],  # This SKU's specific size
-            "colors": [sku["color_name"]],  # This SKU's specific color
+            "category": product["category"],
+            "sizes": all_sizes,
+            "colors": all_colors,
             "image_url": product["images"]["main"],
-            "stock_quantity": sku["stock_available"],
+            "stock_quantity": product["total_stock"],
             "rating": product["rating"],
             "reviews_count": product["reviews_count"],
             "is_featured": product["is_featured"],
-            "is_flash_sale": sku["is_flash_sale"],
-            "flash_sale_end": sku.get("flash_sale_end"),
-            "created_at": sku["created_at"]
+            "is_flash_sale": representative_variant["is_flash_sale"],
+            "flash_sale_end": representative_variant.get("flash_sale_end"),
+            "created_at": product["created_at"]
         }
         sneakers.append(sneaker)
 
@@ -309,58 +351,89 @@ async def get_sneakers(
 @app.get("/sneakers/{sneaker_id}", response_model=Sneaker)
 async def get_sneaker(sneaker_id: str):
     try:
-        # Get SKU document
-        sku = await skus_collection.find_one({"_id": ObjectId(sneaker_id)})
-        if not sku:
-            raise HTTPException(status_code=404, detail="Sneaker not found")
+        # Try to find by product _id first
+        product = await products_collection.find_one({"_id": ObjectId(sneaker_id)})
 
-        # Get related product document
-        product = await products_collection.find_one({"product_id": sku["product_id"]})
         if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
+            # Fallback: try to find by SKU _id and get the product
+            sku = await skus_collection.find_one({"_id": ObjectId(sneaker_id)})
+            if not sku:
+                raise HTTPException(status_code=404, detail="Sneaker not found")
 
-        # Convert to legacy format
+            product = await products_collection.find_one({"product_id": sku["product_id"]})
+            if not product:
+                raise HTTPException(status_code=404, detail="Product not found")
+
+        # Get all SKUs for this product
+        skus = await skus_collection.find(
+            {"product_id": product["product_id"], "stock_available": {"$gt": 0}}
+        ).to_list(length=None)
+
+        if not skus:
+            raise HTTPException(status_code=404, detail="No available variants found")
+
+        # Get the representative SKU (lowest price)
+        representative_sku = min(skus, key=lambda x: x["price"])
+
+        # Aggregate data
+        all_sizes = sorted(list(set(sku["size"] for sku in skus)))
+        all_colors = list(set(sku["color_name"] for sku in skus))
+        total_stock = sum(sku["stock_available"] for sku in skus)
+        min_price = min(sku["price"] for sku in skus)
+
         sneaker = {
-            "id": str(sku["_id"]),
-            "sku": sku["sku"],
+            "id": str(product["_id"]),
+            "sku": representative_sku["sku"],
             "name": product["name"],
-            "brand": sku["brand"],
-            "price": sku["price"],
-            "sale_price": sku.get("sale_price"),
+            "brand": product["brand"],
+            "price": min_price,
+            "sale_price": representative_sku.get("sale_price"),
             "description": product["description"],
-            "category": sku["category"],
-            "sizes": [sku["size"]],
-            "colors": [sku["color_name"]],
+            "category": product["category"],
+            "sizes": all_sizes,
+            "colors": all_colors,
             "image_url": product["images"]["main"],
-            "stock_quantity": sku["stock_available"],
+            "stock_quantity": total_stock,
             "rating": product["rating"],
             "reviews_count": product["reviews_count"],
             "is_featured": product["is_featured"],
-            "is_flash_sale": sku["is_flash_sale"],
-            "flash_sale_end": sku.get("flash_sale_end"),
-            "created_at": sku["created_at"]
+            "is_flash_sale": representative_sku["is_flash_sale"],
+            "flash_sale_end": representative_sku.get("flash_sale_end"),
+            "created_at": product["created_at"]
         }
         return sneaker
-    except:
-        raise HTTPException(status_code=400, detail="Invalid sneaker ID")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid sneaker ID: {str(e)}")
 
 @app.get("/flash-sales")
 async def get_flash_sales():
     current_time = datetime.now()
+
+    # Get products with flash sale SKUs
     pipeline = [
         {"$match": {
             "is_flash_sale": True,
             "flash_sale_end": {"$gt": current_time},
             "stock_available": {"$gt": 0}
         }},
-        {"$limit": 10},
         {"$lookup": {
             "from": "products",
             "localField": "product_id",
             "foreignField": "product_id",
             "as": "product_info"
         }},
-        {"$unwind": "$product_info"}
+        {"$unwind": "$product_info"},
+        {
+            "$group": {
+                "_id": "$product_id",
+                "product": {"$first": "$product_info"},
+                "representative_sku": {"$first": "$$ROOT"},
+                "all_sizes": {"$addToSet": "$size"},
+                "all_colors": {"$addToSet": "$color_name"},
+                "total_stock": {"$sum": "$stock_available"}
+            }
+        },
+        {"$limit": 10}
     ]
 
     cursor = skus_collection.aggregate(pipeline)
@@ -368,28 +441,28 @@ async def get_flash_sales():
 
     sneakers = []
     for item in results:
-        sku = item
-        product = item["product_info"]
+        product = item["product"]
+        sku = item["representative_sku"]
 
         sneaker = {
-            "id": str(sku["_id"]),
+            "id": str(product["_id"]),
             "sku": sku["sku"],
             "name": product["name"],
-            "brand": sku["brand"],
+            "brand": product["brand"],
             "price": sku["price"],
             "sale_price": sku.get("sale_price"),
             "description": product["description"],
-            "category": sku["category"],
-            "sizes": [sku["size"]],
-            "colors": [sku["color_name"]],
+            "category": product["category"],
+            "sizes": sorted(item["all_sizes"]),
+            "colors": item["all_colors"],
             "image_url": product["images"]["main"],
-            "stock_quantity": sku["stock_available"],
+            "stock_quantity": item["total_stock"],
             "rating": product["rating"],
             "reviews_count": product["reviews_count"],
             "is_featured": product["is_featured"],
             "is_flash_sale": sku["is_flash_sale"],
             "flash_sale_end": sku.get("flash_sale_end"),
-            "created_at": sku["created_at"]
+            "created_at": product["created_at"]
         }
         sneakers.append(sneaker)
 
@@ -397,68 +470,117 @@ async def get_flash_sales():
 
 @app.get("/featured")
 async def get_featured_sneakers():
-    # Get featured products first
-    featured_product_ids = await products_collection.distinct(
-        "product_id",
-        {"is_featured": True}
-    )
-
-    # Get SKUs for featured products
+    # Get featured products with their representative SKUs
     pipeline = [
-        {"$match": {
-            "product_id": {"$in": featured_product_ids},
-            "stock_available": {"$gt": 0}
-        }},
-        {"$limit": 8},
+        {"$match": {"is_featured": True}},
         {"$lookup": {
-            "from": "products",
+            "from": "skus",
             "localField": "product_id",
             "foreignField": "product_id",
-            "as": "product_info"
+            "as": "skus"
         }},
-        {"$unwind": "$product_info"}
+        {"$unwind": "$skus"},
+        {"$match": {"skus.stock_available": {"$gt": 0}}},
+        {
+            "$group": {
+                "_id": "$product_id",
+                "product": {"$first": "$$ROOT"},
+                "representative_sku": {
+                    "$min": {
+                        "price": "$skus.price",
+                        "sku_data": "$skus"
+                    }
+                },
+                "all_sizes": {"$addToSet": "$skus.size"},
+                "all_colors": {"$addToSet": "$skus.color_name"},
+                "total_stock": {"$sum": "$skus.stock_available"}
+            }
+        },
+        {"$limit": 8}
     ]
 
-    cursor = skus_collection.aggregate(pipeline)
+    cursor = products_collection.aggregate(pipeline)
     results = await cursor.to_list(length=8)
 
     sneakers = []
     for item in results:
-        sku = item
-        product = item["product_info"]
+        product = item["product"]
+        sku_data = item["representative_sku"]["sku_data"]
 
         sneaker = {
-            "id": str(sku["_id"]),
-            "sku": sku["sku"],
+            "id": str(product["_id"]),
+            "sku": sku_data["sku"],
             "name": product["name"],
-            "brand": sku["brand"],
-            "price": sku["price"],
-            "sale_price": sku.get("sale_price"),
+            "brand": product["brand"],
+            "price": item["representative_sku"]["price"],
+            "sale_price": sku_data.get("sale_price"),
             "description": product["description"],
-            "category": sku["category"],
-            "sizes": [sku["size"]],
-            "colors": [sku["color_name"]],
+            "category": product["category"],
+            "sizes": sorted(item["all_sizes"]),
+            "colors": item["all_colors"],
             "image_url": product["images"]["main"],
-            "stock_quantity": sku["stock_available"],
+            "stock_quantity": item["total_stock"],
             "rating": product["rating"],
             "reviews_count": product["reviews_count"],
             "is_featured": product["is_featured"],
-            "is_flash_sale": sku["is_flash_sale"],
-            "flash_sale_end": sku.get("flash_sale_end"),
-            "created_at": sku["created_at"]
+            "is_flash_sale": sku_data["is_flash_sale"],
+            "flash_sale_end": sku_data.get("flash_sale_end"),
+            "created_at": product["created_at"]
         }
         sneakers.append(sneaker)
 
     return {"featured": sneakers}
 
+@app.get("/sneakers/{sneaker_id}/variants")
+async def get_sneaker_variants(sneaker_id: str):
+    """Get all available size/color variants for a specific product"""
+    try:
+        # Get the product first
+        product = await products_collection.find_one({"_id": ObjectId(sneaker_id)})
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Get all SKUs for this product
+        skus = await skus_collection.find(
+            {"product_id": product["product_id"], "stock_available": {"$gt": 0}}
+        ).sort("price", 1).to_list(length=None)
+
+        if not skus:
+            return {"variants": []}
+
+        variants = []
+        for sku in skus:
+            variant = {
+                "sku_id": str(sku["_id"]),
+                "sku": sku["sku"],
+                "size": sku["size"],
+                "color_name": sku["color_name"],
+                "color_code": sku["color_code"],  # Keep original format (e.g., "TB")
+                "price": sku["price"],
+                "sale_price": sku.get("sale_price"),
+                "stock_available": sku["stock_available"],
+                "is_flash_sale": sku["is_flash_sale"],
+                "flash_sale_end": sku.get("flash_sale_end")
+            }
+            variants.append(variant)
+
+        return {
+            "product_id": str(product["_id"]),
+            "product_name": product["name"],
+            "variants": variants
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid product ID: {str(e)}")
+
 @app.get("/brands")
 async def get_brands():
-    brands = await skus_collection.distinct("brand")
+    brands = await products_collection.distinct("brand")
     return {"brands": sorted(brands)}
 
 @app.get("/categories")
 async def get_categories():
-    categories = await skus_collection.distinct("category")
+    categories = await products_collection.distinct("category")
     return {"categories": sorted(categories)}
 
 if __name__ == "__main__":
