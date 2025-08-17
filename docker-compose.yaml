@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.yaml
+    env_file:
+      - .env
+    environment:
+      # Keep both styles in case your code uses either:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME}
+      DATABASE_URL: ${DATABASE_URL}
+      PORT: "8000"
+      # Redis envs (override here or via .env)
+      REDIS_MODE: ${REDIS_MODE:-single}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_SSL: ${REDIS_SSL:-false}
+      REDIS_CLUSTER_NODES: ${REDIS_CLUSTER_NODES:-}
+      REDIS_CLUSTER_PASSWORD: ${REDIS_CLUSTER_PASSWORD:-}
+      REDIS_CLUSTER_SSL: ${REDIS_CLUSTER_SSL:-false}
+    ports:
+      - "8000:8000"
+    # this ensures the alias exists (macOS already provides it, harmless to include)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.yaml
+    environment:
+      VITE_API_BASE_URL: http://localhost:3000
+    depends_on:
+      - backend
+    ports:
+      - "3000:8080"

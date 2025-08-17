@@ -40,7 +40,7 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    product_id = Column(String(20), unique=True, nullable=False, index=True)
+    product_id = Column(UUID(as_uuid=True), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False, index=True)
     brand = Column(String(100), nullable=False, index=True)
     category = Column(String(100), nullable=False, index=True)
@@ -73,7 +73,7 @@ class SKU(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sku = Column(String(50), unique=True, nullable=False, index=True)
-    product_id = Column(String(20), ForeignKey('products.product_id'), nullable=False, index=True)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False, index=True)
     size = Column(Float, nullable=False)
     color_code = Column(String(10), nullable=False)
     color_name = Column(String(100), nullable=False)
@@ -466,7 +466,7 @@ async def get_sneakers(
     query = query.filter(SKU.stock_available > 0)
 
     # Group by product to avoid duplicates and get distinct products
-    query = query.distinct(Product.id)
+    query = query.distinct(Product.product_id)
 
     # Get total count for pagination
     total = query.count()
@@ -526,7 +526,7 @@ async def get_sneakers(
                 image_url = product.images  # Direct string
 
         sneaker = {
-            "id": str(product.id),
+            "id": str(product.product_id),
             "sku": representative_sku.sku,
             "name": product.name,
             "brand": product.brand,
@@ -576,7 +576,9 @@ async def get_sneaker(sneaker_id: str, db: Session = Depends(get_db)):
         # Try to find by product UUID first
         try:
             product_uuid = uuid.UUID(sneaker_id)
-            product = db.query(Product).filter(Product.id == product_uuid).first()
+            print(f"product_id: {sneaker_id} -> {product_uuid}")
+            product = db.query(Product).filter(Product.product_id == product_uuid).first()
+            print(f"product: {product}")
         except ValueError:
             # If not a valid UUID, try to find by SKU ID
             try:
@@ -598,6 +600,7 @@ async def get_sneaker(sneaker_id: str, db: Session = Depends(get_db)):
                 SKU.stock_available > 0
             )
         ).all()
+        print(f"skus found: {len(skus)} for product {product.product_id}")
 
         if not skus:
             raise HTTPException(status_code=404, detail="No available variants found")
@@ -622,7 +625,7 @@ async def get_sneaker(sneaker_id: str, db: Session = Depends(get_db)):
                 image_url = product.images
 
         sneaker_data = {
-            "id": str(product.id),
+            "id": str(product.product_id),
             "sku": representative_sku.sku,
             "name": product.name,
             "brand": product.brand,
@@ -671,8 +674,8 @@ async def get_flash_sales(db: Session = Depends(get_db)):
             SKU.flash_sale_end > current_time,
             SKU.stock_available > 0
         )
-    ).limit(10).all()
-
+    ).limit(100).all()
+    print(f"Found {len(flash_sale_skus)} flash sale SKUs")
     # Group by product
     products_dict = {}
     for sku in flash_sale_skus:
@@ -709,7 +712,7 @@ async def get_flash_sales(db: Session = Depends(get_db)):
                 image_url = product.images
 
         sneaker = {
-            "id": str(product.id),
+            "id": str(product.product_id),
             "sku": representative_sku.sku,
             "name": product.name,
             "brand": product.brand,
@@ -782,7 +785,7 @@ async def get_featured_sneakers(db: Session = Depends(get_db)):
                 image_url = product.images
 
         sneaker = {
-            "id": str(product.id),
+            "id": str(product.product_id),
             "sku": representative_sku.sku,
             "name": product.name,
             "brand": product.brand,
@@ -826,7 +829,7 @@ async def get_sneaker_variants(sneaker_id: str, db: Session = Depends(get_db)):
         # Get the product first
         try:
             product_uuid = uuid.UUID(sneaker_id)
-            product = db.query(Product).filter(Product.id == product_uuid).first()
+            product = db.query(Product).filter(Product.product_id == product_uuid).first()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid product ID format")
 
@@ -861,7 +864,7 @@ async def get_sneaker_variants(sneaker_id: str, db: Session = Depends(get_db)):
                 variants.append(variant)
 
             variants_data = {
-                "product_id": str(product.id),
+                "product_id": str(product.product_id),
                 "product_name": product.name,
                 "variants": variants
             }
@@ -1022,7 +1025,7 @@ async def debug_sneakers_nocache(
     query = query.filter(SKU.stock_available > 0)
 
     # Group by product to avoid duplicates and get distinct products
-    query = query.distinct(Product.id)
+    query = query.distinct(Product.product_id)
 
     print(f"🔍 Query filters applied")
 
@@ -1086,7 +1089,7 @@ async def debug_sneakers_nocache(
                 image_url = product.images
 
         sneaker = {
-            "id": str(product.id),
+            "id": str(product.product_id),
             "sku": representative_sku.sku,
             "name": product.name,
             "brand": product.brand,

@@ -1,21 +1,44 @@
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    APP_MODULE=main:app \
+    PORT=8000
+
+# psycopg build deps; clean APT cache to keep image slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential libpq-dev ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# ---- Install Python deps first (better caching) ----
+COPY backend/requirements.txt ./requirements.txt
+RUN python -m pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir redis hiredis \
+ && pip install --no-cache-dir gunicorn uvicorn[standard]
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# ---- Copy source last (invalidates cache only when code changes) ----
+COPY backend/ /app/backend/
+# helpful for imports when code moves
+ENV PYTHONPATH=/app:/app/backend
 
-# Expose port
+# ---- Run as non-root ----
+RUN useradd -m -u 10001 appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Health expects a /health route that returns 200
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s CMD \
+  python -c "import os,urllib.request; \
+u=f'http://127.0.0.1:{os.getenv(\"PORT\",\"8000\")}/health'; \
+r=urllib.request.urlopen(u,timeout=2); \
+exit(0 if r.status==200 else 1)"
+
+# Gunicorn with Uvicorn workers; make sure gunicorn is in requirements.txt
+CMD ["bash","-lc","exec gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT} ${APP_MODULE} --workers=2 --timeout=60"]

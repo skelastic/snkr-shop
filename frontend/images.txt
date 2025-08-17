@@ -1,0 +1,164 @@
+https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1200&auto=format&fit=crop
+https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?q=80&w=900&auto=format&fit=crop
+https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1588099768550-4014589e03e0?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1600269452121-4f2416e55c28?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1512374382149-233c42b6a83b?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1575537302964-96cd47c06b1b?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1580611519219-dba2753b90ef?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1558121556-2a39fc528338?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1612724271076-24c0a3bade29?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1601144537844-c2a0494aeb41?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1745578865118-aebabd69a8d5?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1745578865059-e922aa7a5e41?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1622760807800-66cf1466fc08?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1741783411372-9bc3eb1c5440?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1698108223397-3d222e80d7ea?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1539185441755-769473a23570?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1579338559194-a162d19bf842?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1606890657264-e5a411daf9ef?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1710553455483-b8c48d365c23?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1579338908476-3a3a1d71a706?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1605408499391-6368c628ef42?w=900&auto=format&fit=crop&q=80
+https://images.unsplash.com/photo-1605408499391-6368c628ef42?w=900&auto=format&fit=crop&q=80
+
+
+-- 1. Create a temp table with the image URLs
+CREATE TEMP TABLE tmp_images (url text);
+
+-- 2. Copy the contents of images.txt into the table (psql \copy is handy)
+\copy tmp_images(url) FROM '/tmp/images.txt'
+
+-- 3. Update products with a random image as a JSONB array
+UPDATE products
+SET images = to_jsonb(ARRAY[
+    (SELECT url FROM tmp_images ORDER BY random() LIMIT 1)
+]);
+
+CREATE TEMP TABLE tmp_images (url text);
+\copy tmp_images(url) FROM '/tmp/images.txt'
+UPDATE products
+SET images = to_jsonb(ARRAY[
+    (SELECT url FROM tmp_images ORDER BY random() LIMIT 1)
+]);
+
+
+-- Update SKUs to be part of flash sale (about 30% of products)
+WITH random_skus AS (
+  SELECT
+    id,
+    price,
+    row_number() OVER (ORDER BY random()) AS rn,
+    count(*) OVER () AS total_count
+  FROM skus
+  WHERE stock_available > 0
+),
+flash_sale_skus AS (
+  SELECT id, price
+  FROM random_skus
+  WHERE rn <= (total_count * 0.1)  -- 30% of SKUs
+)
+UPDATE skus
+SET
+  is_flash_sale = true,
+  flash_sale_end = NOW() + INTERVAL '7 days',  -- Flash sale ends in 7 days
+  sale_price = ROUND((random_skus.price * 0.75)::numeric, 2),  -- 25% discount
+  updated_at = NOW()
+FROM flash_sale_skus fs
+WHERE skus.id = fs.id;
+
+WITH params AS (
+  SELECT 0.10::numeric AS pct_to_mark,            -- 40% of all products
+         now() AS now_ts,
+         (now() + interval '24 hours') AS end_ts
+),
+picked AS (
+  SELECT p.id
+  FROM products p, params
+  ORDER BY random()
+  LIMIT (SELECT GREATEST(1, (params.pct_to_mark * COUNT(*))::int) FROM products, params)
+)
+UPDATE products p
+SET
+  is_flash_sale   = true,
+  flash_discount  = ROUND((30 + (random()*30))::numeric, 2),  -- 30.00% to 60.00%
+  flash_starts_at = (SELECT now_ts FROM params),
+  flash_ends_at   = (SELECT end_ts FROM params),
+  is_featured     = true,
+  category        = CASE
+                      WHEN category ILIKE '%Flash Sale%' THEN category
+                      ELSE 'Flash Sale'
+                    END,
+  updated_at      = now()
+FROM picked
+WHERE p.id = picked.id;
+
+
+
+
+WITH params AS (
+  SELECT 0.10::numeric AS pct_to_mark,
+         now() AS now_ts,
+         (now() + interval '24 hours') AS end_ts
+),
+picked AS (
+  SELECT id
+  FROM products, params
+  WHERE random() < pct_to_mark
+)
+UPDATE products p
+SET
+  is_flash_sale   = true,
+  flash_discount  = ROUND((30 + (random()*30))::numeric, 2),
+  flash_starts_at = (SELECT now_ts FROM params),
+  flash_ends_at   = (SELECT end_ts FROM params),
+  is_featured     = true,
+  category        = CASE
+                      WHEN category ILIKE '%Flash Sale%' THEN category
+                      ELSE 'Flash Sale'
+                    END,
+  updated_at      = now()
+FROM picked
+WHERE p.id = picked.id;
+
+
+
+
+
+
+WITH params AS (
+  SELECT 0.10::numeric AS pct_to_mark,
+         now() AS now_ts,
+         (now() + interval '24 hours') AS end_ts
+),
+stats AS (
+  SELECT COUNT(*)::int AS n FROM products
+),
+target AS (
+  SELECT GREATEST(1, (pct_to_mark * n)::int) AS k
+  FROM params CROSS JOIN stats
+),
+picked AS (
+  SELECT p.id
+  FROM products p
+  CROSS JOIN target
+  ORDER BY random()
+  LIMIT (SELECT k FROM target)
+)
+UPDATE products p
+SET
+  is_flash_sale   = true,
+  flash_discount  = ROUND((30 + (random()*30))::numeric, 2),  -- 30–60%
+  flash_starts_at = (SELECT now_ts FROM params),
+  flash_ends_at   = (SELECT end_ts FROM params),
+  is_featured     = true,
+  category        = CASE
+                      WHEN category ILIKE '%Flash Sale%' THEN category
+                      ELSE 'Flash Sale'
+                    END,
+  updated_at      = now()
+FROM picked
+WHERE p.id = picked.id;
