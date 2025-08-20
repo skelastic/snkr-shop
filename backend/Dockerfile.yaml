@@ -16,8 +16,7 @@ WORKDIR /app
 
 # ---- Install Python deps first (better caching) ----
 COPY backend/requirements.txt ./requirements.txt
-RUN python -m pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir -r requirements.txt \
  && pip install --no-cache-dir redis hiredis \
  && pip install --no-cache-dir gunicorn uvicorn[standard]
 
@@ -41,4 +40,4 @@ r=urllib.request.urlopen(u,timeout=2); \
 exit(0 if r.status==200 else 1)"
 
 # Gunicorn with Uvicorn workers; make sure gunicorn is in requirements.txt
-CMD ["bash","-lc","exec gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT} ${APP_MODULE} --workers=2 --timeout=60"]
+CMD ["bash","-lc","exec gunicorn -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT} ${APP_MODULE} --workers=3 --timeout=60"]

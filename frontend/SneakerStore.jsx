@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingBag, User, Heart, Menu, X, Star, Clock, Filter } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 const SneakerStore = () => {
   const [sneakers, setSneakers] = useState([]);
@@ -62,7 +62,7 @@ const SneakerStore = () => {
 
       const response = await fetch(`${API_BASE}/sneakers?${params}`);
       const data = await response.json();
-      
+
       setSneakers(data.sneakers || []);
       setTotalPages(data.total_pages || 1);
     } catch (error) {
@@ -76,8 +76,8 @@ const SneakerStore = () => {
     setCart(prev => {
       const existing = prev.find(item => item.id === sneaker.id);
       if (existing) {
-        return prev.map(item => 
-          item.id === sneaker.id 
+        return prev.map(item =>
+          item.id === sneaker.id
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
@@ -107,7 +107,7 @@ const SneakerStore = () => {
               SNKR<span className="text-red-500">STORE</span>
             </div>
           </div>
-          
+
           <nav className="hidden md:flex space-x-8">
             <a href="#" className="text-gray-700 hover:text-black font-medium">New & Featured</a>
             <a href="#" className="text-gray-700 hover:text-black font-medium">Men</a>
@@ -115,7 +115,7 @@ const SneakerStore = () => {
             <a href="#" className="text-gray-700 hover:text-black font-medium">Kids</a>
             <a href="#" className="text-gray-700 hover:text-black font-medium">Sale</a>
           </nav>
-          
+
           <div className="flex items-center space-x-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -242,7 +242,7 @@ const SneakerStore = () => {
               <option key={brand} value={brand}>{brand}</option>
             ))}
           </select>
-          
+
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
@@ -253,7 +253,7 @@ const SneakerStore = () => {
               <option key={category} value={category}>{category}</option>
             ))}
           </select>
-          
+
           <button
             onClick={() => {
               setSelectedBrand('');
@@ -281,11 +281,11 @@ const SneakerStore = () => {
         >
           Previous
         </button>
-        
+
         <span className="px-4 py-2">
           Page {currentPage} of {totalPages}
         </span>
-        
+
         <button
           onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
           disabled={currentPage === totalPages}
@@ -302,7 +302,7 @@ const SneakerStore = () => {
       <Header />
       <HeroSection />
       <FlashSaleSection />
-      
+
       <div className="flex items-center justify-between max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <h2 className="text-2xl font-bold text-gray-900">All Sneakers</h2>
         <button
@@ -313,9 +313,9 @@ const SneakerStore = () => {
           <span>Filters</span>
         </button>
       </div>
-      
+
       <FilterSection />
-      
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
