@@ -19,20 +19,66 @@ from sqlalchemy.sql import func, and_, or_
 from sqlalchemy.orm import joinedload
 
 app = FastAPI(title="Sneaker Store API", version="1.0.0")
-
-# CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"], # CORS middleware for React frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# OpenTelemetry imports (assuming you already set these up earlier)
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+# Configure tracer provider
+resource = Resource.create({
+    "service.name": "fastapi-backend"
+})
+
+trace.set_tracer_provider(TracerProvider(resource=resource))
+#tracer = trace.get_tracer(__name__)
+
+# Export traces to Tempo (via OTLP gRPC)
+otlp_exporter = OTLPSpanExporter(
+    endpoint="grafana.homelab.local:4317",  # 👈 adjust if external machine
+    insecure=True,
+    timeout=30
+)
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(otlp_exporter)
+)
+
+from prometheus_fastapi_instrumentator import Instrumentator
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+# Auto-instrument ALL FastAPI routes
+#FastAPIInstrumentor.instrument_app(app)
+FastAPIInstrumentor().instrument_app(app, server_request_hook=lambda span, scope: span.update_name(f"{scope['method']} {scope['path']}"))
+
+
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+RequestsInstrumentor().instrument()
+
+
 # PostgreSQL connection
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin@localhost:5432/sneaker_store")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin@host.docker.internal:5432/sneaker_store")
 engine = create_engine(DATABASE_URL)
+
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+SQLAlchemyInstrumentor().instrument(
+    engine=engine,
+    tracer_provider=None,
+    enable_commenter=True,
+    commenter_options={}
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
 # Database Models
@@ -136,14 +182,14 @@ redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Cache configuration
 CACHE_TTL = {
-    "sneakers": 300,      # 5 minutes for product listings
-    "sneaker_detail": 600, # 10 minutes for individual products
-    "variants": 300,       # 5 minutes for product variants
+    "sneakers": 30,      # 5 minutes for product listings
+    "sneaker_detail": 60, # 10 minutes for individual products
+    "variants": 30,       # 5 minutes for product variants
     "flash_sales": 120,    # 2 minutes for flash sales (more dynamic)
-    "featured": 600,       # 10 minutes for featured products
-    "brands": 3600,        # 1 hour for brands (rarely change)
-    "categories": 3600,    # 1 hour for categories (rarely change)
-    "stats": 300           # 5 minutes for stats
+    "featured": 60,       # 10 minutes for featured products
+    "brands": 360,        # 1 hour for brands (rarely change)
+    "categories": 360,    # 1 hour for categories (rarely change)
+    "stats": 30           # 5 minutes for stats
 }
 
 # Pydantic models for API responses
@@ -1121,6 +1167,29 @@ async def debug_sneakers_nocache(
 
     return response_data
 
+@app.get("/checkout")
+async def checkout():
+    """
+    Simulate checkout failures by randomly raising 5XX errors.
+    Useful for testing Grafana panels and traces.
+    """
+    error_type = random.choice(["500", "502", "503", "504", "ok"])
+
+    if error_type == "500":
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    elif error_type == "502":
+        raise HTTPException(status_code=502, detail="Bad Gateway")
+    elif error_type == "503":
+        raise HTTPException(status_code=503, detail="Service Unavailable")
+    elif error_type == "504":
+        raise HTTPException(status_code=504, detail="Gateway Timeout")
+
+    return {"message": "Checkout successful!"}
+
 if __name__ == "__main__":
+    print("📌 Registered routes at startup:")
+    for route in app.routes:
+        print(" -", route.path, route.methods)
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
