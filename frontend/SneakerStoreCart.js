@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, ShoppingBag, User, Heart, Menu, X, Star, Clock, Filter } from 'lucide-react';
 import ShoppingCartPage from './ShoppingCartPage';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 const SneakerStoreCart = () => {
   const [sneakers, setSneakers] = useState([]);

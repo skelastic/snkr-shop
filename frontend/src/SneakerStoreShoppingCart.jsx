@@ -10,7 +10,7 @@ import ProductCard from './components/ProductCard';
 import Pagination from './components/Pagination';
 import ShoppingCartPage from './components/ShoppingCartPage';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 const SneakerStoreShoppingCart = () => {
   // State management

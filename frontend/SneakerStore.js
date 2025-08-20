@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingBag, User, Heart, Menu, X, Star, Clock, Filter } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 const SneakerStore = () => {
   const [sneakers, setSneakers] = useState([]);

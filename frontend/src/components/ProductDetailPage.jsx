@@ -22,7 +22,7 @@ const ProductDetailPage = ({ productId, onBack, addToCart }) => {
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/products/${productId}`);
+      const response = await fetch(`/products/${productId}`);
       if (response.ok) {
         const data = await response.json();
         setProduct(data);
