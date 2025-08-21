@@ -18,7 +18,7 @@ import uuid
 from sqlalchemy.sql import func, and_, or_
 from sqlalchemy.orm import joinedload
 
-app = FastAPI(title="Sneaker Store API", version="1.0.0")
+app = FastAPI(title="SnkrShop API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # CORS middleware for React frontend
@@ -74,7 +74,7 @@ SQLAlchemyInstrumentor().instrument(
     engine=engine,
     tracer_provider=None,
     enable_commenter=True,
-    commenter_options={}
+    commenter_options={"db_driver": True, "db_framework": True}
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -1184,7 +1184,7 @@ async def checkout():
     elif error_type == "504":
         raise HTTPException(status_code=504, detail="Gateway Timeout")
 
-    return {"message": "Checkout successful!"}
+    return {"message": "Checkout!"}
 
 if __name__ == "__main__":
     print("📌 Registered routes at startup:")
