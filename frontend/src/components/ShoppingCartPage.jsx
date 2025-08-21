@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Tag } from 'lucide-react';
+import CheckoutErrorModal from './CheckoutErrorModal';
 
 const ShoppingCartPage = ({
   cart,
@@ -18,6 +19,105 @@ const ShoppingCartPage = ({
   discount,
   total
 }) => {
+  // State for checkout error modal
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Handle checkout button click
+  const handleCheckout = () => {
+    setIsProcessing(true);
+
+    // Make a single API call to checkout
+    fetch('/api/checkout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items: cart,
+        total: total,
+        shipping: shipping,
+        tax: tax,
+        discount: discount
+      }),
+    })
+    .then(() => {
+      // Don't parse the response, just simulate a failure
+      setTimeout(() => {
+        setIsProcessing(false);
+        setIsErrorModalOpen(true);
+
+        // When the error modal appears, simulate a spike of 10,000 simultaneous requests
+        simulateRequestSpike();
+      }, 1500);
+    })
+    .catch(() => {
+      // Even if the real request fails, continue with our flow
+      setTimeout(() => {
+        setIsProcessing(false);
+        setIsErrorModalOpen(true);
+
+        // When the error modal appears, simulate a spike of 10,000 simultaneous requests
+        simulateRequestSpike();
+      }, 1500);
+    });
+  };
+
+  // Function to simulate a spike of 10,000 simultaneous requests
+  const simulateRequestSpike = () => {
+    console.log("Simulating request spike of 10,000 simultaneous requests to /api/checkout");
+
+    // Use a smaller batch size to avoid browser freezing
+    const batchSize = 100;
+    const totalRequests = 10000;
+    const batches = Math.ceil(totalRequests / batchSize);
+
+    // Track request counts for logging
+    let requestsSent = 0;
+
+    // Function to send a batch of requests
+    const sendBatch = (batchNumber) => {
+      if (batchNumber >= batches) {
+        console.log(`Request spike completed. Total requests sent: ${requestsSent}`);
+        return;
+      }
+
+      // Determine how many requests to send in this batch
+      const requestsInBatch = Math.min(batchSize, totalRequests - (batchNumber * batchSize));
+
+      // Create array of promises for this batch
+      const batchPromises = Array(requestsInBatch).fill().map(() => {
+        requestsSent++;
+
+        // Send the request but don't wait for or process the response
+        return fetch('/api/checkout', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            timestamp: new Date().toISOString(),
+            simulatedRequest: true,
+            requestNumber: requestsSent
+          }),
+        }).catch(() => {
+          // Ignore any errors from these requests
+        });
+      });
+
+      // Once this batch completes, schedule the next batch
+      Promise.allSettled(batchPromises).then(() => {
+        console.log(`Batch ${batchNumber + 1}/${batches} completed. Sent ${requestsInBatch} requests.`);
+
+        // Schedule next batch with a small delay to prevent browser freezing
+        setTimeout(() => sendBatch(batchNumber + 1), 50);
+      });
+    };
+
+    // Start sending batches
+    sendBatch(0);
+  };
+
   if (cart.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 py-12">
@@ -42,6 +142,12 @@ const ShoppingCartPage = ({
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      {/* Checkout Error Modal */}
+      <CheckoutErrorModal
+        isOpen={isErrorModalOpen}
+        onClose={() => setIsErrorModalOpen(false)}
+      />
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -243,8 +349,26 @@ const ShoppingCartPage = ({
               )}
 
               {/* Checkout Button */}
-              <button className="w-full bg-black text-white py-4 rounded-lg font-medium hover:bg-gray-800 transition-colors text-lg mb-4">
-                Proceed to Checkout
+              <button
+                onClick={handleCheckout}
+                disabled={isProcessing}
+                className={`w-full ${
+                  isProcessing
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-black hover:bg-gray-800'
+                } text-white py-4 rounded-lg font-medium transition-colors text-lg mb-4 relative`}
+              >
+                {isProcessing ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Processing...
+                  </span>
+                ) : (
+                  'Proceed to Checkout'
+                )}
               </button>
 
               {/* Security Badge */}
